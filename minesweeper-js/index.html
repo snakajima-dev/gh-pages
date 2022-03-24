@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--　 fabric.jsの読込み　-->
+  <script type="text/javascript" src="./libs/fabric.js"></script>
+  <title>Document</title>
+</head>
+
+<body>
+  <canvas id="canvas"></canvas>
+  <button id="toggleMode" onclick="toggleMode()">FLAG MODE</button></br>
+  <span class="mode-title">MODE:</span>
+  <span id="current-mode">OPEN</span>
+  <style>
+    #toggleMode {
+      width: 200px;
+      height: 50px;
+      margin-top: 10px;
+      margin-bottom: 10px;
+      font-weight: bolder;
+    }
+
+    #current-mode {
+      color: rgb(0, 255, 191);
+      font-weight: bolder;
+      background-color: black;
+      padding: 5px;
+      border-radius: 5px;
+    }
+
+    .active {
+      background-color: rgb(46, 196, 255);
+    }
+  </style>
+  <script type="text/javascript">
+
+    //mode
+    let flgMode = false;
+
+    function toggleMode() {
+      flgMode = !flgMode;
+      let button = document.getElementById('toggleMode');
+      let currentMode = document.getElementById('current-mode');
+      if (flgMode) {
+        button.classList.add('active');
+        currentMode.innerText = "FLAG";
+      } else {
+        button.classList.remove('active');
+        currentMode.innerText = "OPEN";
+      }
+    }
+
+    //ブロックやフィールドマス数の設定
+    let fieldSize = 15;
+    let blockSize = 50;
+    let width = blockSize * fieldSize;
+    let height = blockSize * fieldSize;
+    let probability = 10;//パーセント
+    let maximumNumberOfSearches = 100;
+
+    var canvas = new fabric.Canvas('canvas', {
+      width: width,
+      height: height,
+      backgroundColor: '#dcdcdc',
+    });
+
+
+    let numbers = {
+      0: 'zero',
+      1: 'one', 2: 'two', 3: 'three', 4: 'four',
+      5: 'five', 6: 'six', 7: 'seven', 8: 'eight'
+    }
+
+    class Coordinate {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+      };
+
+      toString() {
+        return `X = ${this.x}\n` +
+          `Y = ${this.y}`;
+      }
+    }
+
+    let enumCoordinate = {
+      TOP: new Coordinate(0, -1),
+      TOP_RIGHT: new Coordinate(1, -1),
+      RIGHT: new Coordinate(1, 0),
+      BOTTOM_RIGHT: new Coordinate(1, 1),
+      BOTTOM: new Coordinate(0, 1),
+      BOTTOM_LEFT: new Coordinate(-1, 1),
+      LEFT: new Coordinate(-1, 0),
+      TOP_LEFT: new Coordinate(-1, -1)
+    }
+
+    class Block {
+      constructor(id, size, x, y) {
+        this.id = id;
+        this.size = size;
+        this.x = x;
+        this.y = y;
+        this.bombCounter = 0;
+        this.isBomb = false;
+        this.isFlg = false;
+        this.isOpen = false;
+      }
+
+      get rect() {
+        return new fabric.Rect({
+          left: this.size * this.x,
+          top: this.size * this.y,
+          fill: '#4169e1',
+          stroke: 'white',
+          width: this.size,
+          height: this.size,
+          selectable: false
+        });
+      }
+
+      flgImage(canvas, x, y) {
+        fabric.Image.fromURL('/img/flag.png', function (oImg) {
+          oImg.scaleToWidth(blockSize);
+          oImg.set({
+            left: blockSize * x,
+            top: blockSize * y,
+            backgroundColor: '#4169e1',
+            stroke: 'white',
+            strokeWidth: 2,
+            selectable: false
+          });
+          canvas.add(oImg);
+        })
+      }
+
+      bombImage(canvas, x, y) {
+        fabric.Image.fromURL('/img/bomb.png', function (oImg) {
+          oImg.scaleToWidth(blockSize);
+          oImg.set({
+            left: blockSize * x,
+            top: blockSize * y,
+            backgroundColor: '#4169e1',
+            stroke: 'white',
+            strokeWidth: 2,
+            selectable: false
+          });
+          canvas.add(oImg);
+        })
+      }
+
+      countImage(canvas, x, y, count) {
+        fabric.Image.fromURL(`/img/${numbers[count]}.png`, function (oImg) {
+          oImg.scaleToWidth(blockSize);
+          oImg.set({
+            left: blockSize * x,
+            top: blockSize * y,
+            backgroundColor: '#4169e1',
+            stroke: 'white',
+            strokeWidth: 2,
+            selectable: false
+          });
+          canvas.add(oImg);
+        })
+      }
+
+      toString() {
+        return `X = ${this.x}\n` +
+          `Y = ${this.y}\n` +
+          `isBomb = ${this.isBomb}\n` +
+          `isFlg = ${this.isFlg}\n` +
+          `isOpen = ${this.isOpen}\n`;
+      }
+    }
+
+    /**
+     *  Stageクラス
+     *  BLockマスを配列で持つクラス
+     **/
+    class Stage {
+      constructor(canvas, width, height) {
+        this.canvas = canvas;
+        this.width = width;
+        this.height = height;
+        this.blocks = new Array();
+        this.ids = new Array();
+        this.maximumNumberCounter = 0;
+        this.createStage();
+      }
+
+      createStage() {
+        let id = 0;
+        for (let h = 0; h < this.height; h++) {
+          for (let w = 0; w < this.width; w++) {
+            let block = new Block(id, blockSize, w, h);
+            //確率の設定
+            let random = Math.floor(Math.random() * 100);
+            //確率によって💣の設置
+            if (random <= probability) {
+              block.isBomb = true;
+            }
+            this.blocks.push(block);
+            id++;
+          }
+        }
+      }
+
+      viewStage() {
+        this.blocks.forEach(block => {
+          this.countBomb(block);
+          // if (block.isBomb) {
+          //   block.bombImage(this.canvas, block.x, block.y);
+          // } else {
+            this.canvas.add(block.rect);
+          // }
+        })
+      }
+
+      openBlock(paramX, paramY, isRecursive) {
+        let findBlock = this.findBlock(paramX, paramY);
+        this.countBomb(findBlock);
+        if (flgMode) {
+          this.toggleFlg(findBlock);
+          return;
+        }
+        if (findBlock.isFlg) return;
+        if (findBlock.isOpen === true) return;
+        if (isRecursive) {
+          if (findBlock.bombCounter > 0) return;
+          if (findBlock.isBomb) return;
+          findBlock.countImage(this.canvas, findBlock.x, findBlock.y, findBlock.bombCounter);
+        } else {
+          if (findBlock.isBomb) {
+            this.gameOver();
+            return;
+          }
+          findBlock.isOpen = true;
+          findBlock.countImage(this.canvas, findBlock.x, findBlock.y, findBlock.bombCounter);
+        }
+        if (this.maximumNumberCounter > maximumNumberOfSearches) return;
+        for (let coordinate in enumCoordinate) {
+          let position = enumCoordinate[coordinate];
+          let find = this.findBlock(findBlock.x + position.x, findBlock.y + position.y);
+          if (find === undefined) continue;
+          let isFind = this.ids.includes(find.id);
+          if (isFind) continue;
+          this.maximumNumberCounter++;
+          this.openBlock(find.x, find.y, true);
+          this.ids.push(find.id);
+        }
+      }
+
+      clear() {
+        this.maximumNumberCounter = 0;
+        this.ids = new Array();
+      }
+
+      toggleFlg(block) {
+        if (block.isFlg) {
+          block.isFlg = false;
+          this.canvas.add(block.rect);
+        } else {
+          block.isFlg = true;
+          block.flgImage(this.canvas, block.x, block.y);
+        }
+      }
+
+      findBlock(paramX, paramY) {
+        if (paramX < 0 || paramX > fieldSize - 1) return undefined;
+        if (paramY < 0 || paramY > fieldSize - 1) return undefined;
+        return this.blocks.find(block => block.x === paramX && block.y === paramY);
+      }
+
+      countBomb(block) {
+        let count = 0;
+        for (let coordinate in enumCoordinate) {
+          let position = enumCoordinate[coordinate];
+          let findBlock = this.findBlock(block.x + position.x, block.y + position.y);
+          if (findBlock === undefined) continue;
+          if (findBlock.isBomb) {
+            count++;
+          }
+        }
+        block.bombCounter = count;
+      }
+
+      gameOver() {
+        console.log('GAME OVER');
+        alert('爆弾に触れてしまったためゲームオーバーです...');
+        window.location.reload();
+      }
+    }
+
+    canvas.on('mouse:down', function (option) {
+      let target = option.target;
+      let coordinateX = target.left / blockSize;
+      let coordinateY = target.top / blockSize;
+      stage.openBlock(coordinateX, coordinateY, false);
+      stage.clear();
+    })
+
+    let stage = new Stage(canvas, fieldSize, fieldSize);
+    stage.viewStage();
+
+  </script>
+</body>
+
+</html>
